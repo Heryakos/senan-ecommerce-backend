@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "types":["node"],
+    // "types":["node"],
     "target": "ES2022",
     "module": "commonjs",
     "lib": ["ES2022"],
@@ -20,7 +20,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  
+
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "prisma"]
 }
