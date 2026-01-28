@@ -1,0 +1,361 @@
+// Prisma Schema for Senan E-Commerce Platform
+// Database: SQL Server 2022
+// ORM: Prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+
+// ================================
+// USER MANAGEMENT
+// ================================
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  phone        String?
+  role         String   @default("CUSTOMER") // Allowed: ADMIN, MANAGER, SELLER, CUSTOMER
+  status       String   @default("ACTIVE")   // Allowed: ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION
+
+  // Profile
+  avatar       String?
+  address      String?
+  city         String?
+  country      String?
+  postalCode   String?
+
+  // Analytics
+  totalOrders  Int      @default(0)
+  totalSpent   Decimal  @default(0) @db.Decimal(10, 2)
+
+  // Timestamps
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastLoginAt  DateTime?
+
+  // Relations
+  orders       Order[]
+  notifications Notification[]
+  sessions     Session[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// ================================
+// PRODUCT CATALOG
+// ================================
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  image       String?
+  parentId    String?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    Category[] @relation("CategoryHierarchy")
+  products    Product[]
+
+  @@index([slug])
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id            String  @id @default(cuid())
+  name          String
+  slug          String  @unique
+  description   String  @db.VarChar(5000)  // Changed from @db.Text to allow indexing
+
+  // Pricing
+  price         Decimal @db.Decimal(10, 2)
+  comparePrice  Decimal? @db.Decimal(10, 2)
+  costPrice     Decimal? @db.Decimal(10, 2)
+
+  // Inventory
+  stock         Int     @default(0)
+  sku           String? @unique
+  barcode       String?
+  trackInventory Boolean @default(true)
+
+  // Organization
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
+  tags          String?  @default("[]")  // Store as JSON array string, e.g. ["electronics","new"]
+
+  // Media
+  images        String?  @default("[]")  // Store as JSON array of URLs
+  thumbnail     String?
+
+  // Status
+  status        String   @default("DRAFT")  // Allowed: DRAFT, ACTIVE, OUT_OF_STOCK, DISCONTINUED
+  isArchived    Boolean  @default(false)
+
+  // SEO
+  metaTitle     String?
+  metaDescription String?
+
+  // Analytics
+  viewCount     Int      @default(0)
+  salesCount    Int      @default(0)
+
+  // Timestamps
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  publishedAt   DateTime?
+
+  // Relations
+  orderItems         OrderItem[]
+  inventoryMovements InventoryMovement[]
+
+  @@index([categoryId])
+  @@index([slug])
+  @@index([status])
+  @@index([createdAt])
+  @@index([price])
+  @@index([name])
+  @@index([description])
+  @@index([stock])
+  @@map("products")
+}
+
+// ================================
+// INVENTORY
+// ================================
+model InventoryMovement {
+  id          String   @id @default(cuid())
+  productId   String
+  quantityDelta Int    // positive = in, negative = out
+  type        String   // ADJUSTMENT, SALE, RESTOCK, RETURN
+  reason      String?
+  userId      String?
+  referenceId String?  // orderId for SALE, etc.
+
+  createdAt   DateTime @default(now())
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([type])
+  @@map("inventory_movements")
+}
+
+// ================================
+// ORDER MANAGEMENT
+// ================================
+model Order {
+  id               String  @id @default(cuid())
+  orderNumber      String  @unique
+
+  // Customer
+  userId           String
+  user             User    @relation(fields: [userId], references: [id])
+
+  // Customer Info (denormalized)
+  customerName     String
+  customerEmail    String
+  customerPhone    String?
+
+  // Shipping
+  shippingAddress  String
+  shippingCity     String
+  shippingCountry  String
+  shippingPostal   String?
+
+  // Billing
+  billingAddress   String?
+  billingCity      String?
+  billingCountry   String?
+  billingPostal    String?
+
+  // Amounts
+  subtotal         Decimal @db.Decimal(10, 2)
+  tax              Decimal @default(0) @db.Decimal(10, 2)
+  shippingCost     Decimal @default(0) @db.Decimal(10, 2)
+  discount         Decimal @default(0) @db.Decimal(10, 2)
+  total            Decimal @db.Decimal(10, 2)
+
+  // Status
+  orderStatus      String  @default("PENDING")       // Allowed: PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED, REFUNDED
+  paymentStatus    String  @default("PENDING")       // Allowed: PENDING, PAID, FAILED, REFUNDED, PARTIALLY_REFUNDED
+  fulfillmentStatus String @default("UNFULFILLED")  // Allowed: UNFULFILLED, PARTIALLY_FULFILLED, FULFILLED
+
+  // Payment
+  paymentMethod    String  // Allowed: CHAPA, TELEBIRR, SANTIM_PAY, CASH_ON_DELIVERY, BANK_TRANSFER
+
+  // Tracking
+  trackingNumber   String?
+  shippingCarrier  String?
+
+  // Notes
+  customerNotes    String?
+  internalNotes    String? @db.Text
+
+  // Timestamps
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  paidAt           DateTime?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+
+  // Relations
+  items            OrderItem[]
+  payments         Payment[]
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([orderStatus])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String  @id @default(cuid())
+  orderId        String
+  productId      String
+
+  // Product snapshot
+  productName    String
+  productSku     String?
+  productImage   String?
+
+  // Pricing
+  price          Decimal @db.Decimal(10, 2)
+  quantity       Int
+  subtotal       Decimal @db.Decimal(10, 2)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  id              String  @id @default(cuid())
+  orderId         String
+
+  amount          Decimal @db.Decimal(10, 2)
+  currency        String  @default("ETB")
+  method          String
+  status          String  @default("PENDING")
+
+  transactionId   String? @unique
+  gatewayResponse String? @db.Text
+  errorMessage    String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  processedAt     DateTime?
+
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([transactionId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ================================
+// NOTIFICATIONS
+// ================================
+model Notification {
+  id       String  @id @default(cuid())
+  userId   String
+
+  type     String  // Allowed: ORDER_CREATED, ORDER_UPDATED, etc.
+  title    String
+  message  String  @db.Text
+  data     String? @db.Text // JSON string
+
+  isRead   Boolean @default(false)
+  readAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ================================
+// SETTINGS & CONFIGURATION
+// ================================
+model Setting {
+  id       String  @id @default(cuid())
+  key      String  @unique
+  value    String  @db.Text
+  type     String  @default("string")
+  category String  @default("general")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@index([category])
+  @@map("settings")
+}
+
+// ================================
+// ANALYTICS & REPORTING
+// ================================
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  resource    String
+  resourceId  String?
+  metadata    String?  @db.Text
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([resource])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
