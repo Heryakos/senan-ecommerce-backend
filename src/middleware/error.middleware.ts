@@ -11,7 +11,7 @@ export interface AppError extends Error {
   isOperational?: boolean
 }
 
-export const errorHandler = (err: AppError | Error, req: Request, res: Response, next: NextFunction) => {
+export const errorHandler = (err: AppError | Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error("Error:", err)
 
   // Zod validation errors

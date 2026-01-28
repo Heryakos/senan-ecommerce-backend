@@ -87,7 +87,7 @@ app.use(requestLogger)
 // ================================
 
 // Health check
-app.get("/health", (req: Request, res: Response) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "healthy",
     timestamp: new Date().toISOString(),

@@ -18,7 +18,7 @@ function getCategoryForKey(key: string): string {
   return "general"
 }
 
-export const getAllSettings = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getAllSettings = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { category } = req.query
 
@@ -51,11 +51,11 @@ export const getAllSettings = async (req: AuthRequest, res: Response, next: Next
       data: settingsObj,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const getSettingByKey = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getSettingByKey = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { key } = req.params
 
@@ -90,12 +90,12 @@ export const getSettingByKey = async (req: AuthRequest, res: Response, next: Nex
       },
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
 /** Public: UI config for theming/layout. No auth. */
-export const getUISettings = async (req: Request, res: Response, next: NextFunction) => {
+export const getUISettings = async (req: Request, res: Response, _next: NextFunction) => {
   try {
     const settings = await prisma.setting.findMany({
       where: { category: "ui" },
@@ -119,11 +119,11 @@ export const getUISettings = async (req: Request, res: Response, next: NextFunct
       },
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const updateSettings = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const updateSettings = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const validated = updateSettingsSchema.parse(req.body)
 
@@ -163,6 +163,6 @@ export const updateSettings = async (req: AuthRequest, res: Response, next: Next
       message: "Settings updated successfully",
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }

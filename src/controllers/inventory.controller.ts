@@ -19,7 +19,7 @@ const updateStockSchema = z.object({
   type: z.enum(["ADJUSTMENT", "RESTOCK", "RETURN"]).optional(),
 })
 
-export const getInventory = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getInventory = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { category, lowStockOnly, page = "1", limit = "20", search } = req.query
     const pageNum = Number.parseInt(page as string)
@@ -57,7 +57,7 @@ export const getInventory = async (req: AuthRequest, res: Response, next: NextFu
       },
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
@@ -74,7 +74,7 @@ export const getLowStock = async (req: AuthRequest, res: Response, next: NextFun
   }
 }
 
-export const updateStock = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const updateStock = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { productId } = req.params
     const validated = updateStockSchema.parse(req.body)
@@ -124,7 +124,7 @@ export const updateStock = async (req: AuthRequest, res: Response, next: NextFun
     })
     res.json({ success: true, message: "Stock updated", data: updated })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 

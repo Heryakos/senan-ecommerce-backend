@@ -50,7 +50,7 @@ export const getPaymentMethods = async (req: AuthRequest, res: Response, next: N
   }
 }
 
-export const processPayment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const processPayment = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const validated = processPaymentSchema.parse(req.body)
 
@@ -108,7 +108,7 @@ export const processPayment = async (req: AuthRequest, res: Response, next: Next
       data: payment,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
@@ -184,7 +184,7 @@ const PROVIDER_MAP: Record<string, string> = {
   santim_pay: PaymentMethod.SANTIM_PAY,
 }
 
-export const paymentWebhook = async (req: Request, res: Response, next: NextFunction) => {
+export const paymentWebhook = async (req: Request, res: Response, _next: NextFunction) => {
   try {
     const provider = (req.params.provider as string)?.toLowerCase()
     const method = PROVIDER_MAP[provider]
@@ -216,11 +216,11 @@ export const paymentWebhook = async (req: Request, res: Response, next: NextFunc
 
     res.json({ success: true, verified: verified.success })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const getPaymentById = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getPaymentById = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { id } = req.params
 
@@ -247,11 +247,11 @@ export const getPaymentById = async (req: AuthRequest, res: Response, next: Next
       data: payment,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const verifyPayment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const verifyPayment = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { id } = req.params
 
@@ -276,6 +276,6 @@ export const verifyPayment = async (req: AuthRequest, res: Response, next: NextF
       },
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }

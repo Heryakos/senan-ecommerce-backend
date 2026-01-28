@@ -43,7 +43,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
 }
 
 export const authorize = (...allowedRoles: string[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(new ApiError("Unauthorized", 401))
     }

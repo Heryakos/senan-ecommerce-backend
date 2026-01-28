@@ -34,7 +34,7 @@ const updateOrderStatusSchema = z.object({
   internalNotes: z.string().optional(),
 })
 
-export const getAllOrders = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getAllOrders = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const {
       search,
@@ -123,11 +123,11 @@ export const getAllOrders = async (req: AuthRequest, res: Response, next: NextFu
       },
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const getOrderById = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getOrderById = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { id } = req.params
 
@@ -181,11 +181,11 @@ export const getOrderById = async (req: AuthRequest, res: Response, next: NextFu
       data: order,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const createOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const createOrder = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const validated = createOrderSchema.parse(req.body)
     const userId = req.user!.id
@@ -325,11 +325,11 @@ export const createOrder = async (req: AuthRequest, res: Response, next: NextFun
       data: order,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const updateOrderStatus = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const updateOrderStatus = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { id } = req.params
     const validated = updateOrderStatusSchema.parse(req.body)
@@ -367,11 +367,11 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response, next: N
       data: order,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
-export const cancelOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const cancelOrder = async (req: AuthRequest, res: Response, _next: NextFunction) => {
   try {
     const { id } = req.params
 
@@ -436,6 +436,6 @@ export const cancelOrder = async (req: AuthRequest, res: Response, next: NextFun
       data: updatedOrder,
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
