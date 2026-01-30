@@ -4,7 +4,6 @@
 
 import type { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
-import { Role } from "../constants/roles"
 import { ApiError } from "./error.middleware"
 
 export interface AuthRequest extends Request {
@@ -15,7 +14,7 @@ export interface AuthRequest extends Request {
   }
 }
 
-export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authenticate = async (req: AuthRequest, _res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization
 

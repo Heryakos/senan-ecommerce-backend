@@ -7,7 +7,7 @@ import { prisma } from "../config/database"
 import type { AuthRequest } from "../middleware/auth.middleware"
 import { OrderStatus, PaymentStatus } from "../constants/roles"
 
-export const getDashboardStats = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getDashboardStats = async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const now = new Date()
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())

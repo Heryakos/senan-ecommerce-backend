@@ -8,7 +8,7 @@ import { prisma } from "../config/database"
 import { ApiError } from "../middleware/error.middleware"
 import type { AuthRequest } from "../middleware/auth.middleware"
 import { z } from "zod"
-import { Role, ProductStatus } from "../constants/roles"
+import { ProductStatus } from "../constants/roles"
 
 const LOW_STOCK_THRESHOLD = 10
 
@@ -61,7 +61,7 @@ export const getInventory = async (req: AuthRequest, res: Response, _next: NextF
   }
 }
 
-export const getLowStock = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getLowStock = async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const products = await prisma.product.findMany({
       where: { trackInventory: true, stock: { lte: LOW_STOCK_THRESHOLD } },
@@ -104,9 +104,10 @@ export const updateStock = async (req: AuthRequest, res: Response, _next: NextFu
         data: {
           productId,
           quantityDelta: delta,
-          type: movementType,
+          type: movementType, // source: MANUAL (ADJUSTMENT/RESTOCK) | ORDER (SALE/RETURN)
           reason: validated.reason || null,
-          userId: req.user!.id,
+          userId: req.user!.id, // createdBy
+          referenceId: null, // For manual adjustments, no order reference
         },
       }),
       prisma.product.update({

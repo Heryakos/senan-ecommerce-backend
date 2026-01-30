@@ -7,8 +7,13 @@ import { prisma } from "../config/database"
 import { ApiError } from "../middleware/error.middleware"
 import type { AuthRequest } from "../middleware/auth.middleware"
 import { z } from "zod"
-import { OrderStatus, PaymentStatus, FulfillmentStatus, PaymentMethod, Role } from "../constants/roles"
+import { OrderStatus, PaymentStatus, FulfillmentStatus, Role } from "../constants/roles"
 import type { Product, OrderItem as PrismaOrderItem } from "@prisma/client"
+import {
+  validateOrderStatusTransition,
+  validatePaymentStatusTransition,
+  getOrderStatusFromPayment,
+} from "../utils/orderStateMachine"
 
 const orderItemSchema = z.object({
   productId: z.string(),
@@ -209,11 +214,11 @@ export const createOrder = async (req: AuthRequest, res: Response, _next: NextFu
       throw new ApiError("Some products not found", 404)
     }
 
-    // Check stock availability
+    // Check stock availability BEFORE transaction
     for (const item of validated.items) {
       const product = products.find((p: Product) => p.id === item.productId)!
       if (product.trackInventory && product.stock < item.quantity) {
-        throw new ApiError(`Insufficient stock for ${product.name}`, 400)
+        throw new ApiError(`Insufficient stock for ${product.name}. Available: ${product.stock}, Requested: ${item.quantity}`, 400)
       }
     }
 
@@ -244,79 +249,94 @@ export const createOrder = async (req: AuthRequest, res: Response, _next: NextFu
     const orderCount = await prisma.order.count()
     const orderNumber = `ORD-${(orderCount + 1).toString().padStart(6, "0")}`
 
-    // Create order with items
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        userId,
-        customerName: user.name,
-        customerEmail: user.email,
-        customerPhone: user.phone || "",
-        shippingAddress: validated.shippingAddress,
-        shippingCity: validated.shippingCity,
-        shippingCountry: validated.shippingCountry,
-        shippingPostal: validated.shippingPostal,
-        billingAddress: validated.shippingAddress,
-        billingCity: validated.shippingCity,
-        billingCountry: validated.shippingCountry,
-        billingPostal: validated.shippingPostal,
-        subtotal,
-        tax,
-        shippingCost,
-        discount,
-        total,
-        orderStatus: OrderStatus.PENDING,
-        paymentStatus: PaymentStatus.PENDING,
-        fulfillmentStatus: FulfillmentStatus.UNFULFILLED,
-        paymentMethod: validated.paymentMethod,
-        customerNotes: validated.customerNotes,
-        items: {
-          create: orderItems,
-        },
-      },
-      include: {
-        items: true,
-      },
-    })
+    // ATOMIC TRANSACTION: Create order + reserve/deduct stock + log movements
+    const order = await prisma.$transaction(async (tx) => {
+      // Re-check stock within transaction (prevent race conditions)
+      for (const item of validated.items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } })
+        if (!product) throw new ApiError(`Product ${item.productId} not found`, 404)
+        if (product.trackInventory && product.stock < item.quantity) {
+          throw new ApiError(`Insufficient stock for ${product.name}. Available: ${product.stock}, Requested: ${item.quantity}`, 400)
+        }
+      }
 
-    // Update product stock and log SALE movement
-    await Promise.all(
-      validated.items.map((item) => {
-        const product = products.find((p: Product) => p.id === item.productId)!
-        if (product.trackInventory) {
-          return prisma.product.update({
+      // Create order
+      const newOrder = await tx.order.create({
+        data: {
+          orderNumber,
+          userId,
+          customerName: user.name,
+          customerEmail: user.email,
+          customerPhone: user.phone || "",
+          shippingAddress: validated.shippingAddress,
+          shippingCity: validated.shippingCity,
+          shippingCountry: validated.shippingCountry,
+          shippingPostal: validated.shippingPostal,
+          billingAddress: validated.shippingAddress,
+          billingCity: validated.shippingCity,
+          billingCountry: validated.shippingCountry,
+          billingPostal: validated.shippingPostal,
+          subtotal,
+          tax,
+          shippingCost,
+          discount,
+          total,
+          orderStatus: OrderStatus.PENDING,
+          paymentStatus: PaymentStatus.PENDING,
+          fulfillmentStatus: FulfillmentStatus.UNFULFILLED,
+          paymentMethod: validated.paymentMethod,
+          customerNotes: validated.customerNotes,
+          items: {
+            create: orderItems,
+          },
+        },
+        include: {
+          items: true,
+        },
+      })
+
+      // Deduct stock and create movements atomically
+      for (const item of validated.items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } })
+        if (product?.trackInventory) {
+          // Prevent negative stock
+          const newStock = product.stock - item.quantity
+          if (newStock < 0) {
+            throw new ApiError(`Stock would go negative for ${product.name}`, 400)
+          }
+
+          await tx.product.update({
             where: { id: item.productId },
             data: {
               stock: { decrement: item.quantity },
               salesCount: { increment: item.quantity },
+              status: newStock === 0 ? "OUT_OF_STOCK" : product.status,
             },
           })
-        }
-      }),
-    )
-    await Promise.all(
-      validated.items
-        .filter((item) => products.find((p) => p.id === item.productId)?.trackInventory)
-        .map((item) =>
-          prisma.inventoryMovement.create({
+
+          await tx.inventoryMovement.create({
             data: {
               productId: item.productId,
               quantityDelta: -item.quantity,
               type: "SALE",
-              referenceId: order.id,
+              reason: `Order ${newOrder.orderNumber}`,
+              referenceId: newOrder.id,
               userId,
             },
           })
-        )
-    )
+        }
+      }
 
-    // Update user stats
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        totalOrders: { increment: 1 },
-        totalSpent: { increment: total },
-      },
+      // Update user stats
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          totalOrders: { increment: 1 },
+          totalSpent: { increment: total },
+        },
+      })
+
+      return newOrder
     })
 
     res.status(201).json({
@@ -334,7 +354,26 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response, _next: 
     const { id } = req.params
     const validated = updateOrderStatusSchema.parse(req.body)
 
+    // Get current order state
+    const currentOrder = await prisma.order.findUnique({ where: { id } })
+    if (!currentOrder) {
+      throw new ApiError("Order not found", 404)
+    }
+
+    // Validate transitions
+    if (validated.orderStatus && validated.orderStatus !== currentOrder.orderStatus) {
+      validateOrderStatusTransition(currentOrder.orderStatus, validated.orderStatus)
+    }
+    if (validated.paymentStatus && validated.paymentStatus !== currentOrder.paymentStatus) {
+      validatePaymentStatusTransition(currentOrder.paymentStatus, validated.paymentStatus)
+    }
+
     const updateData: any = { ...validated }
+
+    // Sync order status from payment status if payment changed
+    if (validated.paymentStatus && !validated.orderStatus) {
+      updateData.orderStatus = getOrderStatusFromPayment(validated.paymentStatus)
+    }
 
     // Set timestamps based on status changes
     if (validated.orderStatus === OrderStatus.SHIPPED && !updateData.shippedAt) {

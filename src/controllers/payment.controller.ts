@@ -11,6 +11,10 @@ import type { AuthRequest } from "../middleware/auth.middleware"
 import { z } from "zod"
 import { PaymentMethod, PaymentStatus, OrderStatus } from "../constants/roles"
 import { getPaymentProvider } from "../payment"
+import {
+  validatePaymentStatusTransition,
+  getOrderStatusFromPayment,
+} from "../utils/orderStateMachine"
 
 const processPaymentSchema = z.object({
   orderId: z.string(),
@@ -34,7 +38,7 @@ const DEFAULT_PAYMENT_METHODS = [
   { method: PaymentMethod.BANK_TRANSFER, name: "Bank Transfer", enabled: true },
 ]
 
-export const getPaymentMethods = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const getPaymentMethods = async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const row = await prisma.setting.findFirst({ where: { key: "payment_methods", category: "payment" } })
     let list = DEFAULT_PAYMENT_METHODS
@@ -96,10 +100,19 @@ export const processPayment = async (req: AuthRequest, res: Response, _next: Nex
     })
 
     if (success) {
-      await prisma.order.update({
-        where: { id: validated.orderId },
-        data: { paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.CONFIRMED, paidAt: new Date() },
-      })
+      const order = await prisma.order.findUnique({ where: { id: validated.orderId } })
+      if (order) {
+        validatePaymentStatusTransition(order.paymentStatus, PaymentStatus.PAID)
+        const newOrderStatus = getOrderStatusFromPayment(PaymentStatus.PAID)
+        await prisma.order.update({
+          where: { id: validated.orderId },
+          data: {
+            paymentStatus: PaymentStatus.PAID,
+            orderStatus: newOrderStatus,
+            paidAt: new Date(),
+          },
+        })
+      }
     }
 
     res.json({
@@ -133,10 +146,19 @@ export const initiatePayment = async (req: AuthRequest, res: Response, next: Nex
           processedAt: new Date(),
         },
       })
-      await prisma.order.update({
-        where: { id: validated.orderId },
-        data: { paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.CONFIRMED, paidAt: new Date() },
-      })
+      const order = await prisma.order.findUnique({ where: { id: validated.orderId } })
+      if (order) {
+        validatePaymentStatusTransition(order.paymentStatus, PaymentStatus.PAID)
+        const newOrderStatus = getOrderStatusFromPayment(PaymentStatus.PAID)
+        await prisma.order.update({
+          where: { id: validated.orderId },
+          data: {
+            paymentStatus: PaymentStatus.PAID,
+            orderStatus: newOrderStatus,
+            paidAt: new Date(),
+          },
+        })
+      }
       return res.json({
         success: true,
         data: { paymentId: payment.id, status: "PAID" as const },
@@ -174,7 +196,7 @@ export const initiatePayment = async (req: AuthRequest, res: Response, next: Nex
       },
     })
   } catch (error) {
-    next(error)
+    _next(error)
   }
 }
 
@@ -188,29 +210,75 @@ export const paymentWebhook = async (req: Request, res: Response, _next: NextFun
   try {
     const provider = (req.params.provider as string)?.toLowerCase()
     const method = PROVIDER_MAP[provider]
-    if (!method) return res.status(400).json({ success: false, message: "Unknown provider" })
-
-    const txId = (req.body?.transactionId ?? req.body?.reference ?? req.body?.tx_ref) as string | undefined
-    if (!txId) return res.status(400).json({ success: false, message: "Missing transactionId" })
-
-    const payment = await prisma.payment.findFirst({ where: { transactionId: txId }, include: { order: true } })
-    if (!payment || payment.status === PaymentStatus.PAID) {
-      return res.json({ success: true, message: "Already processed" })
+    if (!method) {
+      res.status(400).json({ success: false, message: "Unknown provider" })
+      return
     }
 
+    // TODO: Verify provider signature/secret (implementation depends on provider)
+    // const secret = process.env[`${provider.toUpperCase()}_WEBHOOK_SECRET`]
+    // if (!verifyWebhookSignature(req.body, req.headers, secret)) {
+    //   res.status(401).json({ success: false, message: "Invalid signature" })
+    //   return
+    // }
+
+    const txId = (req.body?.transactionId ?? req.body?.reference ?? req.body?.tx_ref) as string | undefined
+    if (!txId) {
+      res.status(400).json({ success: false, message: "Missing transactionId" })
+      return
+    }
+
+    // Idempotent: find payment by transactionId
+    const payment = await prisma.payment.findFirst({
+      where: { transactionId: txId },
+      include: { order: true },
+    })
+
+    if (!payment) {
+      res.status(404).json({ success: false, message: "Payment not found" })
+      return
+    }
+
+    // Idempotent: reject if already finalized
+    if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.REFUNDED) {
+      res.json({ success: true, message: "Already processed", status: payment.status })
+      return
+    }
+
+    // Never trust client payment status - verify with provider
     const prov = getPaymentProvider(method)
-    if (!prov) return res.status(500).json({ success: false, message: "Provider not configured" })
+    if (!prov) {
+      res.status(500).json({ success: false, message: "Provider not configured" })
+      return
+    }
 
     const verified = await prov.verify(txId, req.body)
 
     if (verified.success) {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: PaymentStatus.PAID, processedAt: new Date() },
-      })
-      await prisma.order.update({
-        where: { id: payment.orderId },
-        data: { paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.CONFIRMED, paidAt: new Date() },
+      // Atomic update: payment + order status
+      await prisma.$transaction(async (tx) => {
+        const currentOrder = await tx.order.findUnique({ where: { id: payment.orderId } })
+        if (!currentOrder) {
+          throw new ApiError("Order not found", 404)
+        }
+
+        // Validate transition
+        validatePaymentStatusTransition(currentOrder.paymentStatus, PaymentStatus.PAID)
+
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.PAID, processedAt: new Date() },
+        })
+
+        const newOrderStatus = getOrderStatusFromPayment(PaymentStatus.PAID)
+        await tx.order.update({
+          where: { id: payment.orderId },
+          data: {
+            paymentStatus: PaymentStatus.PAID,
+            orderStatus: newOrderStatus,
+            paidAt: new Date(),
+          },
+        })
       })
     }
 

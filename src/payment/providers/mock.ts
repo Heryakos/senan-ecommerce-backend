@@ -15,7 +15,7 @@ export const mockProvider: IPaymentProvider = {
     }
   },
 
-  async verify(transactionId: string): Promise<VerifyResult> {
+  async verify(_transactionId: string): Promise<VerifyResult> {
     await new Promise((r) => setTimeout(r, 200))
     return { success: true, status: "PAID" }
   },

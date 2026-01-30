@@ -12,7 +12,7 @@ const updateSettingsSchema = z.record(z.string(), z.any())
 
 const UI_KEYS = ["ui_theme", "ui_modules", "ui_home_layout", "ui_category_layout"]
 
-function getCategoryForKey(key: string): string {
+export function getCategoryForKey(key: string): string {
   if (key === "payment_methods") return "payment"
   if (UI_KEYS.includes(key) || key.startsWith("ui_")) return "ui"
   return "general"
@@ -144,14 +144,15 @@ export const updateSettings = async (req: AuthRequest, res: Response, _next: Nex
         stringValue = String(value)
       }
 
+      const category = getCategoryForKey(key)
       return prisma.setting.upsert({
         where: { key },
-        update: { value: stringValue, type },
+        update: { value: stringValue, type, category },
         create: {
           key,
           value: stringValue,
           type,
-          category: "general",
+          category,
         },
       })
     })

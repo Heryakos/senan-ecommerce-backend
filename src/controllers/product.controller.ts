@@ -17,9 +17,11 @@ const createProductSchema = z.object({
   costPrice: z.number().positive().optional(),
   stock: z.number().int().min(0),
   sku: z.string().optional(),
+  barcode: z.string().optional(),
   categoryId: z.string(),
   tags: z.array(z.string()).optional(),
   images: z.array(z.string()).optional(),
+  thumbnail: z.string().optional(),
   status: z.enum(["DRAFT", "ACTIVE", "OUT_OF_STOCK", "DISCONTINUED"]).optional(),
 })
 

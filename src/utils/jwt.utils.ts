@@ -3,7 +3,6 @@
  */
 
 import jwt from "jsonwebtoken"
-import { Role } from "../constants/roles"
 
 export interface TokenPayload {
   id: string
@@ -12,7 +11,9 @@ export interface TokenPayload {
 }
 
 export const generateToken = (payload: TokenPayload): string => {
-  return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: process.env.JWT_EXPIRES_IN || "7d" })
+  const secret = process.env.JWT_SECRET!
+  const expiresIn = process.env.JWT_EXPIRES_IN || "7d"
+  return jwt.sign(payload, secret, { expiresIn })
 }
 
 export const verifyToken = (token: string): TokenPayload => {
