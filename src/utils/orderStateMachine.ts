@@ -17,10 +17,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   [OrderStatus.REFUNDED]: [], // Terminal
 }
 
-export function validateOrderStatusTransition(
-  currentStatus: OrderStatus,
-  newStatus: OrderStatus
-): void {
+export function validateOrderStatusTransition(currentStatus: string, newStatus: string): void {
   const allowed = VALID_TRANSITIONS[currentStatus] || []
   if (!allowed.includes(newStatus)) {
     throw new ApiError(
@@ -30,10 +27,7 @@ export function validateOrderStatusTransition(
   }
 }
 
-export function validatePaymentStatusTransition(
-  currentStatus: PaymentStatus,
-  newStatus: PaymentStatus
-): void {
+export function validatePaymentStatusTransition(currentStatus: string, newStatus: string): void {
   // Payment can go: PENDING -> PAID/FAILED, PAID -> REFUNDED/PARTIALLY_REFUNDED
   const valid: Record<string, string[]> = {
     [PaymentStatus.PENDING]: [PaymentStatus.PAID, PaymentStatus.FAILED],
@@ -54,7 +48,7 @@ export function validatePaymentStatusTransition(
 /**
  * Sync order status based on payment status
  */
-export function getOrderStatusFromPayment(paymentStatus: PaymentStatus): OrderStatus {
+export function getOrderStatusFromPayment(paymentStatus: string): string {
   switch (paymentStatus) {
     case PaymentStatus.PAID:
       return OrderStatus.CONFIRMED

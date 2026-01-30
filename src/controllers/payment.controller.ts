@@ -9,12 +9,9 @@ import { prisma } from "../config/database"
 import { ApiError } from "../middleware/error.middleware"
 import type { AuthRequest } from "../middleware/auth.middleware"
 import { z } from "zod"
-import { PaymentMethod, PaymentStatus, OrderStatus } from "../constants/roles"
+import { PaymentMethod, PaymentStatus } from "../constants/roles"
 import { getPaymentProvider } from "../payment"
-import {
-  validatePaymentStatusTransition,
-  getOrderStatusFromPayment,
-} from "../utils/orderStateMachine"
+import { validatePaymentStatusTransition, getOrderStatusFromPayment } from "../utils/orderStateMachine"
 
 const processPaymentSchema = z.object({
   orderId: z.string(),
@@ -54,7 +51,7 @@ export const getPaymentMethods = async (_req: AuthRequest, res: Response, next: 
   }
 }
 
-export const processPayment = async (req: AuthRequest, res: Response, _next: NextFunction) => {
+export const processPayment = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const validated = processPaymentSchema.parse(req.body)
 
@@ -121,11 +118,11 @@ export const processPayment = async (req: AuthRequest, res: Response, _next: Nex
       data: payment,
     })
   } catch (error) {
-    _next(error)
+    next(error)
   }
 }
 
-export const initiatePayment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const initiatePayment = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const validated = initiateSchema.parse(req.body)
 
@@ -146,9 +143,9 @@ export const initiatePayment = async (req: AuthRequest, res: Response, next: Nex
           processedAt: new Date(),
         },
       })
-      const order = await prisma.order.findUnique({ where: { id: validated.orderId } })
-      if (order) {
-        validatePaymentStatusTransition(order.paymentStatus, PaymentStatus.PAID)
+      const currentOrder = await prisma.order.findUnique({ where: { id: validated.orderId } })
+      if (currentOrder) {
+        validatePaymentStatusTransition(currentOrder.paymentStatus, PaymentStatus.PAID)
         const newOrderStatus = getOrderStatusFromPayment(PaymentStatus.PAID)
         await prisma.order.update({
           where: { id: validated.orderId },
@@ -159,10 +156,11 @@ export const initiatePayment = async (req: AuthRequest, res: Response, next: Nex
           },
         })
       }
-      return res.json({
+      res.json({
         success: true,
         data: { paymentId: payment.id, status: "PAID" as const },
       })
+      return
     }
 
     const provider = getPaymentProvider(validated.method)
@@ -196,7 +194,7 @@ export const initiatePayment = async (req: AuthRequest, res: Response, next: Nex
       },
     })
   } catch (error) {
-    _next(error)
+    next(error)
   }
 }
 

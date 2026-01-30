@@ -95,7 +95,7 @@ export const getSettingByKey = async (req: AuthRequest, res: Response, _next: Ne
 }
 
 /** Public: UI config for theming/layout. No auth. */
-export const getUISettings = async (req: Request, res: Response, _next: NextFunction) => {
+export const getUISettings = async (_req: Request, res: Response, _next: NextFunction) => {
   try {
     const settings = await prisma.setting.findMany({
       where: { category: "ui" },
